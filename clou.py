@@ -389,10 +389,22 @@ async def attack(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
 
-    # Only allow admin to launch an attack
-    if user_id != ADMIN_USER_ID:
-        await context.bot.send_message(chat_id, "❌ *You are not authorized to use this command!*", parse_mode="Markdown")
-        return
+    # Check if the user is an admin or an approved user
+    if user_id == ADMIN_USER_ID:
+        pass  # Admin is always allowed
+    else:
+        user_approval = approved_users_collection.find_one({"user_id": user_id})
+        if not user_approval or "expiry" not in user_approval:
+            await context.bot.send_message(chat_id, "❌ *You are not approved to use this command. Contact the admin.*", parse_mode="Markdown")
+            return
+
+        # Check if approval has expired
+        current_time = datetime.datetime.utcnow()
+        expiry_time = user_approval["expiry"]
+        if expiry_time < current_time:
+            approved_users_collection.delete_one({"user_id": user_id})  # Remove expired users
+            await context.bot.send_message(chat_id, "❌ *Your approval has expired! Contact the admin for renewal.*", parse_mode="Markdown")
+            return
 
     # Parse arguments
     args = context.args
@@ -405,11 +417,11 @@ async def attack(update: Update, context: CallbackContext):
     duration = int(duration)
 
     # Fetch all VPS instances (Regular & AWS)
-    vps_list = list(vps_collection.find())  # Regular VPS
-    aws_vps_list = list(aws_vps_collection.find())  # AWS VPS
+    vps_list = list(vps_collection.find({"user_id": user_id}))  # Only the user's VPS
+    aws_vps_list = list(aws_vps_collection.find({"user_id": user_id}))  # Only the user's AWS VPS
 
     if not vps_list and not aws_vps_list:
-        await context.bot.send_message(chat_id, "❌ *No VPS configured!*", parse_mode="Markdown")
+        await context.bot.send_message(chat_id, "❌ *No VPS configured!* Use /add_vps or /add_aws_vps first.", parse_mode="Markdown")
         return
 
     total_vps = len(vps_list) + len(aws_vps_list)
